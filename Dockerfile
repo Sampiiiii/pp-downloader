@@ -1,34 +1,24 @@
 # Build stage
-FROM golang:1.24 AS builder
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies needed for CGO (gcc, musl-dev) and SQLite headers
+RUN apk add --no-cache build-base sqlite-dev
 
 WORKDIR /app
 
-# Copy go mod and sum files first to leverage Docker cache
+# Copy go mod files first to leverage Docker cache
 COPY go.mod go.sum ./
 
 # Download dependencies
 RUN go mod download
 
-# Copy source code
+# Copy the rest of the source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" \
-    -o /app/pp-downloader ./cmd/pp-downloader
-
-# Download all dependencies
-RUN go mod download
-
-# Copy source code
-COPY --chown=appuser:appuser . .
-
-# Create necessary directories
-RUN mkdir -p /app/data /app/downloads /app/config
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-w -s" \
+# Build the application (CGO is enabled for sqlite3 support)
+RUN CGO_ENABLED=1 \
+    CGO_CFLAGS="-D_GNU_SOURCE -DSQLITE_DISABLE_LFS" \
+    go build -tags "sqlite_omit_load_extension,libsqlite3" -ldflags="-w -s" \
     -o /app/pp-downloader ./cmd/pp-downloader
 
 # Final stage
