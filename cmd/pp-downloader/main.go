@@ -112,16 +112,21 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	// Start the scheduler
-	go runScheduler(ctx, cfg, dl, playlistStates)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runScheduler(ctx, cfg, dl, playlistStates)
+	}()
 
 	log.Println("Plex Playlist Downloader started. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	<-sigCh
 	log.Println("Shutting down...")
-	cancel()
-	time.Sleep(1 * time.Second) // Give goroutines time to finish
+	cancel()   // Signal tasks to stop
+	wg.Wait()  // Wait for scheduler to finish
+	log.Println("Shutdown complete.")
 }
 
 // runScheduler manages the scheduling of playlist checks
@@ -168,8 +173,8 @@ func processAllPlaylists(ctx context.Context, cfg *config.Config, dl *downloader
 		}
 	}
 
-	// Wait for all playlists to finish processing
-	wg.Wait()
+	// Don't wait for the initial processing to complete
+	// wg.Wait()
 }
 
 // processPlaylist processes a single playlist and updates its state
@@ -180,7 +185,7 @@ func processPlaylist(ctx context.Context, dl *downloader.Downloader, name, url s
 	changed := false
 
 	// Process the playlist
-	err := dl.ProcessPlaylist(url, func(videoID string, downloaded bool) {
+	err := dl.ProcessPlaylist(url, name, func(videoID string, downloaded bool) {
 		if downloaded {
 			changed = true
 			log.Printf("Downloaded new video from %s: %s", name, videoID)

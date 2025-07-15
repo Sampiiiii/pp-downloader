@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,20 +50,11 @@ func NewDownloader(ffmpegPath, outputDir string, db *database.Database) *Downloa
 }
 
 // ProcessPlaylist downloads all videos from a playlist that haven't been downloaded before
-func (d *Downloader) ProcessPlaylist(playlistURL string, callback func(videoID string, downloaded bool)) error {
+func (d *Downloader) ProcessPlaylist(playlistURL string, playlistName string, callback func(videoID string, downloaded bool)) error {
 	// Extract playlist ID from URL
 	playlistID := extractPlaylistID(playlistURL)
 	if playlistID == "" {
 		return fmt.Errorf("invalid playlist URL: %s", playlistURL)
-	}
-
-	// Get or create playlist in database first to ensure we have an ID
-	// Extract playlist name from URL (last part of the path)
-	playlistName := playlistID
-	if strings.Contains(playlistURL, "list=") {
-		if parts := strings.Split(playlistURL, "list="); len(parts) > 1 {
-			playlistName = strings.Split(parts[1], "&")[0]
-		}
 	}
 
 	playlist, err := d.db.GetOrCreatePlaylist(playlistID, playlistName)
@@ -70,7 +62,7 @@ func (d *Downloader) ProcessPlaylist(playlistURL string, callback func(videoID s
 		return fmt.Errorf("failed to get or create playlist: %w", err)
 	}
 
-	log.Printf("Processing playlist %s (%s)", playlist.Title, playlistID)
+	log.Printf("Processing playlist '%s' (%s)", playlistName, playlistID)
 
 	// Get all videos in the playlist
 	videos, err := d.getPlaylistVideos(playlistURL)
@@ -95,7 +87,7 @@ func (d *Downloader) ProcessPlaylist(playlistURL string, callback func(videoID s
 		}
 
 		if exists {
-			// Video already downloaded, skip
+			log.Printf("Skipping video %s as it already exists in the database", video.ID)
 			if callback != nil {
 				callback(video.ID, false)
 			}
@@ -103,7 +95,7 @@ func (d *Downloader) ProcessPlaylist(playlistURL string, callback func(videoID s
 		}
 
 		// Download the video
-		filePath, fileSize, err := d.downloadVideo(video.ID)
+		filePath, fileSize, err := d.downloadVideo(video.ID, playlistName) // Pass the friendly name
 		if err != nil {
 			log.Printf("Failed to download video %s: %v", video.ID, err)
 			continue
@@ -199,15 +191,19 @@ func (d *Downloader) getPlaylistVideos(playlistURL string) ([]VideoInfo, error) 
 
 // downloadVideo downloads a single video and converts it to mp3
 // Returns the output file path, file size in bytes, and any error
-func (d *Downloader) downloadVideo(videoID string) (string, int64, error) {
-	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(d.outputDir, 0755); err != nil {
-		return "", 0, fmt.Errorf("failed to create music directory: %w", err)
+func (d *Downloader) downloadVideo(videoID string, playlistName string) (string, int64, error) {
+	log.Printf("Downloading video: %s for playlist: %s", videoID, playlistName)
+
+	// Create playlist-specific directory using the playlist name
+	playlistDir := filepath.Join(d.outputDir, playlistName)
+	if err := os.MkdirAll(playlistDir, 0755); err != nil {
+		return "", 0, fmt.Errorf("failed to create playlist directory: %w", err)
 	}
 
 	// Create a template for the output filename
-	tmpl := filepath.Join(d.outputDir, "%(title)s [%(id)s].%(ext)s")
-
+	tmpl := filepath.Join(playlistDir, "%(title)s [%(id)s].%(ext)s")
+	log.Printf("Using output template: %s", tmpl)
+	
 	// Use yt-dlp to download the best audio quality and convert to mp3
 	cmd := exec.Command("yt-dlp",
 		"--extract-audio",
@@ -216,55 +212,51 @@ func (d *Downloader) downloadVideo(videoID string) (string, int64, error) {
 		"--embed-thumbnail",
 		"--add-metadata",
 		"--output", tmpl,
-		"--newline",
 		"--no-warnings",
 		"--no-playlist", // Ensure we only download the video, not the whole playlist
 		"https://youtube.com/watch?v="+videoID,
 	)
 
-	// Capture and log the output
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", 0, fmt.Errorf("yt-dlp download failed: %w\nOutput: %s", err, string(output))
+	// Add more detailed logging for the command
+	log.Printf("Executing yt-dlp command: %v", cmd.Args)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Create a buffer to capture command output
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		return "", 0, fmt.Errorf("yt-dlp download failed: %w\nOutput: %s", err, output.String())
 	}
 
 	// Log the output for debugging
-	log.Printf("Download output for %s: %s", videoID, string(output))
+	log.Printf("Download output for %s in %s: %s", videoID, playlistName, output.String())
 
-	// Get the actual output filename from yt-dlp
-	// Note: This is a simplified approach. In a real implementation, you'd want to parse
-	// the yt-dlp output or use --print-json to get the exact output filename
-	// For now, we'll use a glob pattern to find the file
-	matches, err := filepath.Glob(filepath.Join(d.outputDir, "*.mp3"))
-	if err != nil || len(matches) == 0 {
-		return "", 0, fmt.Errorf("failed to find downloaded file: %v", err)
-	}
-
-	// Find the most recent file
-	var latestFile string
-	var latestTime time.Time
-	for _, match := range matches {
-		fileInfo, err := os.Stat(match)
-		if err != nil {
-			continue
-		}
-		if fileInfo.ModTime().After(latestTime) {
-			latestTime = fileInfo.ModTime()
-			latestFile = match
+	// Parse the output to find the actual file path
+	outputStr := output.String()
+	filePath := ""
+	for _, line := range strings.Split(outputStr, "\n") {
+		if strings.Contains(line, "[ExtractAudio] Destination:") {
+			filePath = strings.TrimSpace(strings.Split(line, ":")[1])
+		} else if strings.Contains(line, "[download] Destination:") {
+			// Fallback for non-audio conversion downloads
+			filePath = strings.TrimSpace(strings.Split(line, ":")[1])
 		}
 	}
 
-	if latestFile == "" {
-		return "", 0, fmt.Errorf("failed to determine output file")
+	if filePath == "" {
+		return "", 0, fmt.Errorf("could not find file path in yt-dlp output")
 	}
 
-	// Get file info
-	fileInfo, err := os.Stat(latestFile)
+	// Get file size
+	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to get file info: %w", err)
+		return "", 0, fmt.Errorf("failed to get file size for '%s': %w", filePath, err)
 	}
 
-	return latestFile, fileInfo.Size(), nil
+	return filePath, fileInfo.Size(), nil
 }
 
 // extractPlaylistID extracts the playlist ID from a YouTube URL

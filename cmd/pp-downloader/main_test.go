@@ -61,7 +61,7 @@ func TestIntegration(t *testing.T) {
 	// Test: Download playlist
 	t.Run("DownloadPlaylist", func(t *testing.T) {
 		for _, playlist := range config.Playlists {
-			err := dl.ProcessPlaylist(playlist.ID, func(videoID string, downloaded bool) {
+			err := dl.ProcessPlaylist(playlist.ID, playlist.Name, func(videoID string, downloaded bool) {
 				t.Logf("Processed video %s, downloaded: %v", videoID, downloaded)
 			})
 
