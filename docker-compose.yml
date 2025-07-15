@@ -8,7 +8,7 @@ services:
       - MUSIC_PARENT_DIR=/music
       - FFMPEG_PATH=/usr/bin/ffmpeg
       - JSON_PATH=/config/playlists.json
-      - DB_PATH=/config/downloads.db
+      - DB_PATH=/music/downloads.db
       - WATCH_INTERVAL=15m
     restart: unless-stopped
     healthcheck:

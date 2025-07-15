@@ -28,9 +28,9 @@ FROM alpine:3.19
 ENV CONFIG_PATH=/app/config/playlists.json \
     DB_PATH=/app/data/downloads.db \
     DOWNLOAD_DIR=/app/downloads \
-    MUSIC_PARENT_DIR=/app/data \
+    MUSIC_PARENT_DIR=/music \
     FFMPEG_PATH=/usr/bin/ffmpeg \
-    JSON_PATH=/app/config/playlists.json \
+    JSON_PATH=/config/playlists.json \
     WATCH_INTERVAL=15m \
     PATH="$PATH:/usr/local/bin"
 
@@ -46,8 +46,8 @@ RUN addgroup --system appuser && \
         yt-dlp \
         sqlite && \
     # Create necessary directories
-    mkdir -p /app/data /app/downloads /app/config && \
-    chown -R appuser:appuser /app
+    mkdir -p /music /config && \
+    chown -R appuser:appuser /app /music /config
 
 # Switch to non-root user
 USER appuser
@@ -56,7 +56,7 @@ USER appuser
 COPY --from=builder /app/pp-downloader .
 
 # Set volume mounts
-VOLUME ["/app/data", "/app/downloads", "/app/config"]
+VOLUME ["/music", "/config"]
 
 # Set up healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -64,4 +64,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Set the entrypoint and default command
 ENTRYPOINT ["/app/pp-downloader"]
-CMD ["--help"]

@@ -47,8 +47,31 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	// Bind environment variables
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
+	// Set environment variables explicitly
+	config.MusicParentDir = viper.GetString("MUSIC_PARENT_DIR")
+	config.FFmpegPath = viper.GetString("FFMPEG_PATH")
+	config.JSONPath = viper.GetString("JSON_PATH")
+	config.DBPath = viper.GetString("DB_PATH")
+
+	// Parse watch interval
+	if watchInterval := viper.GetString("WATCH_INTERVAL"); watchInterval != "" {
+		if duration, err := time.ParseDuration(watchInterval); err == nil {
+			config.WatchInterval = duration
+		}
+	}
+
+	// Set defaults if not specified
+	if config.MusicParentDir == "" {
+		config.MusicParentDir = "/music"
+	}
+	if config.FFmpegPath == "" {
+		config.FFmpegPath = "/usr/bin/ffmpeg"
+	}
+	if config.JSONPath == "" {
+		config.JSONPath = "/config/playlists.json"
+	}
+	if config.DBPath == "" {
+		config.DBPath = "/music/downloads.db"
 	}
 
 	// Set default watch interval if not specified
