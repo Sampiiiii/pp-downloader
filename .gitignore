@@ -1,0 +1,63 @@
+# Logs
+*.log
+logs/
+log/
+*.log.*
+
+# Environment files
+.env
+*.env
+.env.*
+
+# Build output
+bin/
+obj/
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# Go specific
+*.test
+*.test.*
+*.prof
+*.out
+
+# Docker
+.docker/
+.dockerignore
+
+# Cache
+.cache/
+node_modules/
+vendor/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+.config/** 
+.music/** 
