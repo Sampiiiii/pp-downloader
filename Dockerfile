@@ -3,23 +3,19 @@ FROM golang:1.24 AS builder
 
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup -S appuser && adduser -S appuser -G appuser
-
-# Set ownership and permissions
-RUN chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
-
-# Install build dependencies
-RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    git
-
-# Copy go mod and sum files
+# Copy go mod and sum files first to leverage Docker cache
 COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-w -s" \
+    -o /app/pp-downloader ./cmd/pp-downloader
 
 # Download all dependencies
 RUN go mod download
@@ -50,8 +46,8 @@ ENV CONFIG_PATH=/app/config/playlists.json \
 
 # Create app directory and set up non-root user
 WORKDIR /app
-RUN addgroup -S appuser && \
-    adduser -S appuser -G appuser && \
+RUN addgroup --system appuser && \
+    adduser --system --ingroup appuser appuser && \
     # Install runtime dependencies
     apk add --no-cache \
         ca-certificates \
